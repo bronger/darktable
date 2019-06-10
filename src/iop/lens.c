@@ -45,6 +45,34 @@
 #define LF_SEARCH_SORT_AND_UNIQUIFY 2
 #endif
 
+int lf_enable_corrections (
+    lfModifier *modifier, const lfLens *lens, lfPixelFormat format,
+    float focal, float aperture, float distance, float scale, lfLensType targeom,
+    int flags, bool reverse)
+{
+    modifier->PixelFormat = format;
+    modifier->Reverse = reverse;
+
+    int enabledMods = 0;
+
+    if (flags & LF_MODIFY_TCA)
+        enabledMods |= lf_modifier_enable_tca_correction(modifier);
+
+    if (flags & LF_MODIFY_VIGNETTING)
+        enabledMods |= lf_modifier_enable_vignetting_correction(modifier, aperture, distance);
+
+    if (flags & LF_MODIFY_DISTORTION)
+        enabledMods |= lf_modifier_enable_distortion_correction(modifier);
+
+    if (flags & LF_MODIFY_GEOMETRY && lens->Type != targeom)
+        enabledMods |= lf_modifier_enable_projection_transform(modifier, targeom);
+
+    if (flags & LF_MODIFY_SCALE && scale != 1.0)
+        enabledMods |= lf_modifier_enable_scaling(modifier, scale);
+
+    return enabledMods;
+}
+
 DT_MODULE_INTROSPECTION(5, dt_iop_lensfun_params_t)
 
 typedef enum dt_iop_lensfun_modflag_t
@@ -355,10 +383,10 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
 
   const float orig_w = roi_in->scale * piece->buf_in.width, orig_h = roi_in->scale * piece->buf_in.height;
   dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-  lfModifier *modifier = lf_modifier_new(d->lens, d->crop, orig_w, orig_h);
+  lfModifier *modifier = lf_modifier_create(d->lens, d->focal, d->crop, orig_w, orig_h, LF_PF_F32, d->inverse);
 
   const int modflags
-      = lf_modifier_initialize(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance, d->scale,
+      = lf_enable_corrections(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance, d->scale,
                                d->target_geom, d->modify_flags, d->inverse);
   dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
 
@@ -608,9 +636,9 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   if(dev_tmpbuf == NULL) goto error;
 
   dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-  modifier = lf_modifier_new(d->lens, d->crop, orig_w, orig_h);
+  modifier = lf_modifier_create(d->lens, d->focal, d->crop, orig_w, orig_h, LF_PF_F32, d->inverse);
 
-  int modflags = lf_modifier_initialize(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
+  int modflags = lf_enable_corrections(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
                                         d->scale, d->target_geom, d->modify_flags, d->inverse);
   dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
 
@@ -806,9 +834,9 @@ int distort_transform(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, floa
   if(!d->lens || !d->lens->Maker || d->crop <= 0.0f) return 0;
 
   const float orig_w = piece->buf_in.width, orig_h = piece->buf_in.height;
-  lfModifier *modifier = lf_modifier_new(d->lens, d->crop, orig_w, orig_h);
+  lfModifier *modifier = lf_modifier_create(d->lens, d->focal, d->crop, orig_w, orig_h, LF_PF_F32, !d->inverse);
 
-  int modflags = lf_modifier_initialize(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
+  int modflags = lf_enable_corrections(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
                                         d->scale, d->target_geom, d->modify_flags, !d->inverse);
   float *buf = malloc(2 * 3 * sizeof(float));
 
@@ -834,9 +862,9 @@ int distort_backtransform(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, 
   if(!d->lens || !d->lens->Maker || d->crop <= 0.0f) return 0;
 
   const float orig_w = piece->buf_in.width, orig_h = piece->buf_in.height;
-  lfModifier *modifier = lf_modifier_new(d->lens, d->crop, orig_w, orig_h);
+  lfModifier *modifier = lf_modifier_create(d->lens, d->focal, d->crop, orig_w, orig_h, LF_PF_F32, d->inverse);
 
-  int modflags = lf_modifier_initialize(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
+  int modflags = lf_enable_corrections(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
                                         d->scale, d->target_geom, d->modify_flags, d->inverse);
   float *buf = malloc(2 * 3 * sizeof(float));
 
@@ -868,10 +896,10 @@ void distort_mask(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *p
 
   const float orig_w = roi_in->scale * piece->buf_in.width, orig_h = roi_in->scale * piece->buf_in.height;
   dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-  lfModifier *modifier = lf_modifier_new(d->lens, d->crop, orig_w, orig_h);
+  lfModifier *modifier = lf_modifier_create(d->lens, d->focal, d->crop, orig_w, orig_h, LF_PF_F32, d->inverse);
 
   int modify_flags = d->modify_flags & (/*LF_MODIFY_TCA |*/ LF_MODIFY_DISTORTION | LF_MODIFY_GEOMETRY | LF_MODIFY_SCALE);
-  const int modflags = lf_modifier_initialize(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
+  const int modflags = lf_enable_corrections(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
                                               d->scale, d->target_geom, modify_flags, d->inverse);
   dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
 
@@ -934,9 +962,9 @@ void modify_roi_in(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *
 
   const float orig_w = roi_in->scale * piece->buf_in.width, orig_h = roi_in->scale * piece->buf_in.height;
 
-  lfModifier *modifier = lf_modifier_new(d->lens, d->crop, orig_w, orig_h);
+  lfModifier *modifier = lf_modifier_create(d->lens, d->focal, d->crop, orig_w, orig_h, LF_PF_F32, d->inverse);
 
-  int modflags = lf_modifier_initialize(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
+  int modflags = lf_enable_corrections(modifier, d->lens, LF_PF_F32, d->focal, d->aperture, d->distance,
                                         d->scale, d->target_geom, d->modify_flags, d->inverse);
 
   if(modflags & (LF_MODIFY_TCA | LF_MODIFY_DISTORTION | LF_MODIFY_GEOMETRY | LF_MODIFY_SCALE))
@@ -1050,7 +1078,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
     lf_lens_destroy(d->lens);
     d->lens = NULL;
   }
-  d->lens = lf_lens_new();
+  d->lens = lf_lens_create();
 
   if(p->camera[0])
   {
@@ -1067,7 +1095,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
   {
     dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
     const lfLens **lens
-        = lf_db_find_lenses_hd(dt_iop_lensfun_db, camera, NULL, p->lens, 0);
+        = lf_db_find_lenses(dt_iop_lensfun_db, camera, NULL, p->lens, 0);
     dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
     if(lens)
     {
@@ -1080,8 +1108,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
         tca.Model = LF_TCA_MODEL_LINEAR;
         tca.Terms[0] = p->tca_r;
         tca.Terms[1] = p->tca_b;
-        if(d->lens->CalibTCA)
-          while(d->lens->CalibTCA[0]) lf_lens_remove_calib_tca(d->lens, 0);
+        lf_lens_remove_calibrations(d->lens);
         lf_lens_add_calib_tca(d->lens, &tca);
       }
       lf_free(lens);
@@ -1142,7 +1169,7 @@ void init_global(dt_iop_module_so_t *module)
   gd->kernel_lens_distort_lanczos3 = dt_opencl_create_kernel(program, "lens_distort_lanczos3");
   gd->kernel_lens_vignette = dt_opencl_create_kernel(program, "lens_vignette");
 
-  lfDatabase *dt_iop_lensfun_db = lf_db_new();
+  lfDatabase *dt_iop_lensfun_db = lf_db_create();
   gd->db = (void *)dt_iop_lensfun_db;
 #if defined(__MACH__) || defined(__APPLE__)
 #else
@@ -1217,7 +1244,7 @@ void reload_defaults(dt_iop_module_t *module)
     if(cam)
     {
       dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-      const lfLens **lens = lf_db_find_lenses_hd(gd->db, cam[0], NULL, tmp.lens, 0);
+      const lfLens **lens = lf_db_find_lenses(gd->db, cam[0], NULL, tmp.lens, 0);
       dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
 
       if(!lens && islower(cam[0]->Mount[0]))
@@ -1232,7 +1259,7 @@ void reload_defaults(dt_iop_module_t *module)
         g_strlcpy(tmp.lens, "", sizeof(tmp.lens));
 
         dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-        lens = lf_db_find_lenses_hd(gd->db, cam[0], NULL, tmp.lens, 0);
+        lens = lf_db_find_lenses(gd->db, cam[0], NULL, tmp.lens, 0);
         dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
       }
 
@@ -1753,11 +1780,11 @@ static void lens_set(dt_iop_module_t *self, const lfLens *lens)
     snprintf(aperture, sizeof(aperture), "%g", lens->MinAperture);
 
   mounts[0] = 0;
-  if(lens->Mounts)
-    for(i = 0; lens->Mounts[i]; i++)
+  if(lf_lens_get_mount_names(lens))
+    for(i = 0; lf_lens_get_mount_names(lens)[i]; i++)
     {
       if(i > 0) g_strlcat(mounts, ", ", sizeof(mounts));
-      g_strlcat(mounts, lens->Mounts[i], sizeof(mounts));
+      g_strlcat(mounts, lf_lens_get_mount_names(lens)[i], sizeof(mounts));
     }
 
   fm = g_strdup_printf(_("maker:\t\t%s\n"
@@ -1935,7 +1962,7 @@ static void lens_menusearch_clicked(GtkWidget *button, gpointer user_data)
   (void)button;
 
   dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-  lenslist = lf_db_find_lenses_hd(dt_iop_lensfun_db, g->camera, NULL, NULL, LF_SEARCH_SORT_AND_UNIQUIFY);
+  lenslist = lf_db_find_lenses(dt_iop_lensfun_db, g->camera, NULL, NULL, LF_SEARCH_SORT_AND_UNIQUIFY);
   dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
   if(!lenslist) return;
   lens_menu_fill(self, lenslist);
@@ -1962,8 +1989,8 @@ static void lens_autosearch_clicked(GtkWidget *button, gpointer user_data)
 
   parse_maker_model(txt, make, sizeof(make), model, sizeof(model));
   dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-  lenslist = lf_db_find_lenses_hd(dt_iop_lensfun_db, g->camera, make[0] ? make : NULL,
-                                  model[0] ? model : NULL, LF_SEARCH_SORT_AND_UNIQUIFY);
+  lenslist = lf_db_find_lenses(dt_iop_lensfun_db, g->camera, make[0] ? make : NULL,
+                               model[0] ? model : NULL, LF_SEARCH_SORT_AND_UNIQUIFY);
   dt_pthread_mutex_unlock(&darktable.plugin_threadsafe);
   if(!lenslist) return;
   lens_menu_fill(self, lenslist);
@@ -2053,7 +2080,7 @@ static float get_autoscale(dt_iop_module_t *self, dt_iop_lensfun_params_t *p, co
   {
     dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
     const lfLens **lenslist
-        = lf_db_find_lenses_hd(dt_iop_lensfun_db, camera, NULL, p->lens, 0);
+        = lf_db_find_lenses(dt_iop_lensfun_db, camera, NULL, p->lens, 0);
     if(lenslist)
     {
       const dt_image_t *img = &(self->dev->image_storage);
@@ -2063,9 +2090,9 @@ static float get_autoscale(dt_iop_module_t *self, dt_iop_lensfun_params_t *p, co
                 iht = img->height - img->crop_y - img->crop_height;
 
       // create dummy modifier
-      lfModifier *modifier = lf_modifier_new(lenslist[0], p->crop, iwd, iht);
-      (void)lf_modifier_initialize(modifier, lenslist[0], LF_PF_F32, p->focal, p->aperture, p->distance, 1.0f,
-                                   p->target_geom, p->modify_flags, p->inverse);
+      lfModifier *modifier = lf_modifier_create(lenslist[0], p->focal, p->crop, iwd, iht, LF_PF_F32, p->inverse);
+      (void)lf_enable_corrections(modifier, lenslist[0], LF_PF_F32, p->focal, p->aperture, p->distance, 1.0f,
+                                  p->target_geom, p->modify_flags, p->inverse);
       scale = lf_modifier_get_auto_scale(modifier, p->inverse);
       lf_modifier_destroy(modifier);
     }
@@ -2234,7 +2261,7 @@ void gui_init(struct dt_iop_module_t *self)
     const gchar *txt = gtk_entry_get_text(GTK_ENTRY(g->lens_model));
     parse_maker_model (txt, make, sizeof (make), model, sizeof (model));
     dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-    const lfLens **lenslist = lf_db_find_lenses_hd (dt_iop_lensfun_db, g->camera,
+    const lfLens **lenslist = lf_db_find_lenses (dt_iop_lensfun_db, g->camera,
                               make [0] ? make : NULL,
                               model [0] ? model : NULL, 0);
     if(lenslist) lens_set (self, lenslist[0]);
@@ -2385,8 +2412,8 @@ void gui_update(struct dt_iop_module_t *self)
     char make[200], model[200];
     parse_maker_model(p->lens, make, sizeof(make), model, sizeof(model));
     dt_pthread_mutex_lock(&darktable.plugin_threadsafe);
-    const lfLens **lenslist = lf_db_find_lenses_hd(dt_iop_lensfun_db, g->camera, make[0] ? make : NULL,
-                                                   model[0] ? model : NULL, 0);
+    const lfLens **lenslist = lf_db_find_lenses(dt_iop_lensfun_db, g->camera, make[0] ? make : NULL,
+                                                model[0] ? model : NULL, 0);
     if(lenslist)
       lens_set(self, lenslist[0]);
     else
