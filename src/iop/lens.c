@@ -1157,20 +1157,8 @@ void init_global(dt_iop_module_so_t *module)
     gchar *path = g_file_get_path(g_file_get_parent(file));
     g_object_unref(file);
 
-#ifdef LF_MAX_DATABASE_VERSION
-    g_free(dt_iop_lensfun_db->HomeDataDir);
-    dt_iop_lensfun_db->HomeDataDir = g_build_filename(path, "lensfun", "version_" STR(LF_MAX_DATABASE_VERSION), NULL);
     if(lf_db_load(dt_iop_lensfun_db) != LF_NO_ERROR)
-    {
       fprintf(stderr, "[iop_lens]: could not load lensfun database in `%s'!\n", path);
-#endif
-      g_free(dt_iop_lensfun_db->HomeDataDir);
-      dt_iop_lensfun_db->HomeDataDir = g_build_filename(path, "lensfun", NULL);
-      if(lf_db_load(dt_iop_lensfun_db) != LF_NO_ERROR)
-        fprintf(stderr, "[iop_lens]: could not load lensfun database in `%s'!\n", path);
-#ifdef LF_MAX_DATABASE_VERSION
-    }
-#endif
 
     g_free(path);
   }
