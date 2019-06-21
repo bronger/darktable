@@ -66,6 +66,12 @@ int enable_corrections (
     if (flags & LF_MODIFY_SCALE && scale != 1.0)
         enabledMods |= lf_modifier_enable_scaling(modifier, scale);
 
+    /* float x[] = {615, 264, 1280, 813, 615, 1280, 264, 813}; */
+    /* float y[] = {755, 292, 622, 220, 755, 622, 292, 220}; */
+    /* /\* float x[] = {615, 264, 1280, 813}; *\/ */
+    /* /\* float y[] = {755, 292, 622, 220}; *\/ */
+    /* enabledMods |= lf_modifier_enable_perspective_correction (modifier, x, y, 8, 0.0); */
+
     return enabledMods;
 }
 
